@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -38,6 +39,7 @@ class FaceCaptureScreen extends StatefulWidget {
 class _FaceCaptureScreenState extends State<FaceCaptureScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _anim;
+  Timer? _iosTimer;
   CameraController? _controller;
   late final FaceDetector _detector;
   bool _initializing = true;
@@ -92,7 +94,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       return;
     }
     final front =
-        cameras.indexWhere((c) => c.lensDirection == CameraLensDirection.front);
+    cameras.indexWhere((c) => c.lensDirection == CameraLensDirection.front);
     _camIndex = front >= 0 ? front : 0;
     _start();
   }
@@ -109,7 +111,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       ResolutionPreset.veryHigh,
       enableAudio: false,
       imageFormatGroup:
-          Platform.isIOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.nv21,
+      Platform.isIOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.nv21,
     );
     _controller = c;
     try {
@@ -122,7 +124,14 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       if (mounted) {
         setState(() {
           _initializing = false;
-          if (Platform.isIOS) _hint = 'Tap "Scan" when your face is centered';
+          if (Platform.isIOS) _hint = 'Hold still, scanning…';
+        });
+      }
+      // iOS: auto-scan by taking a still photo every ~1.8s (reliable path)
+      if (Platform.isIOS) {
+        _iosTimer?.cancel();
+        _iosTimer = Timer.periodic(const Duration(milliseconds: 1800), (_) {
+          if (!_capturing && mounted) _captureSample();
         });
       }
     } catch (_) {
@@ -208,8 +217,8 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
             hint = _identify
                 ? 'Scanning…'
                 : (widget.samples > 1
-                    ? 'Hold still (${_templates.length}/${widget.samples})'
-                    : 'Hold still…');
+                ? 'Hold still (${_templates.length}/${widget.samples})'
+                : 'Hold still…');
           }
         }
       }
@@ -240,6 +249,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
   Future<void> _captureSample() async {
     if (_capturing) return;
     _capturing = true;
+    _iosTimer?.cancel(); // pause auto-loop while processing this shot
     if (mounted) setState(() => _hint = 'Processing…');
     await _stopStream();
     try {
@@ -256,7 +266,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       final bakedPath = '${file.path}_baked.jpg';
       await File(bakedPath).writeAsBytes(img.encodeJpg(full));
       final faces =
-          await _detector.processImage(InputImage.fromFilePath(bakedPath));
+      await _detector.processImage(InputImage.fromFilePath(bakedPath));
       try {
         await File(bakedPath).delete();
       } catch (_) {}
@@ -311,7 +321,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
         setState(() {
           _ring = Colors.green;
           _hint =
-              'Saved ${_templates.length}/${widget.samples} — turn head slightly';
+          'Saved ${_templates.length}/${widget.samples} — turn head slightly';
         });
       }
       await Future.delayed(const Duration(milliseconds: 400));
@@ -319,6 +329,10 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
         try {
           await _controller?.startImageStream(_process);
         } catch (_) {}
+      } else if (mounted) {
+        _iosTimer = Timer.periodic(const Duration(milliseconds: 1800), (_) {
+          if (!_capturing && mounted) _captureSample();
+        });
       }
     } catch (e) {
       _retry('ERR: $e');
@@ -330,19 +344,31 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
     _stable = 0;
     if (mounted) {
       setState(() {
-        _hint = msg;
-        _ring = Colors.red;
+        if (Platform.isIOS) {
+          // auto-retrying silently; don't alarm the user with red
+          _hint = 'Hold still, scanning…';
+          _ring = Colors.white60;
+        } else {
+          _hint = msg;
+          _ring = Colors.red;
+        }
       });
     }
     if (!Platform.isIOS) {
       try {
         _controller?.startImageStream(_process);
       } catch (_) {}
+    } else if (mounted) {
+      _iosTimer?.cancel();
+      _iosTimer = Timer.periodic(const Duration(milliseconds: 1800), (_) {
+        if (!_capturing && mounted) _captureSample();
+      });
     }
   }
 
   @override
   void dispose() {
+    _iosTimer?.cancel();
     _anim.dispose();
     _stopStream();
     _controller?.dispose();
@@ -427,78 +453,78 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       ),
       body: _error != null
           ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(_error!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Color(0xFF1A1A1A))),
-              ),
-            )
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(_error!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Color(0xFF1A1A1A))),
+        ),
+      )
           : !ready
-              ? const Center(child: CircularProgressIndicator())
-              : Center(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const SizedBox(height: 12),
-                        if (widget.samples > 1)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: Text(
-                                '${_templates.length}/${widget.samples} captured',
-                                style: const TextStyle(
-                                    color: Color(0xFF8A8A8E),
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600)),
-                          ),
-                        const SizedBox(height: 8),
-                        _roundPreview(size),
-                        const SizedBox(height: 34),
-                        Text(
-                            _identify ? 'Verify to clock in' : 'Align your face',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Color(0xFF1A1A1A),
-                              fontSize: 24,
-                              fontWeight: FontWeight.w800,
-                            )),
-                        const SizedBox(height: 8),
-                        Padding(
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 36),
-                          child: Text(
-                            _ring == Colors.red
-                                ? _hint
-                                : 'Make sure your head is in the circle while we scan your face',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: _ring == Colors.red
-                                  ? Colors.red
-                                  : const Color(0xFF8A8A8E),
-                              fontSize: 15,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 26),
-                        if (_capturing)
-                          const CircularProgressIndicator()
-                        else
-                          SizedBox(
-                            width: size * 0.85,
-                            height: 54,
-                            child: FilledButton.icon(
-                              onPressed: _captureSample,
-                              icon: const Icon(Icons.center_focus_strong),
-                              label: Text(_identify ? 'Scan now' : 'Capture'),
-                            ),
-                          ),
-                        const SizedBox(height: 24),
-                      ],
-                    ),
+          ? const Center(child: CircularProgressIndicator())
+          : Center(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              if (widget.samples > 1)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Text(
+                      '${_templates.length}/${widget.samples} captured',
+                      style: const TextStyle(
+                          color: Color(0xFF8A8A8E),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600)),
+                ),
+              const SizedBox(height: 8),
+              _roundPreview(size),
+              const SizedBox(height: 34),
+              Text(
+                  _identify ? 'Verify to clock in' : 'Align your face',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Color(0xFF1A1A1A),
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                  )),
+              const SizedBox(height: 8),
+              Padding(
+                padding:
+                const EdgeInsets.symmetric(horizontal: 36),
+                child: Text(
+                  _ring == Colors.red
+                      ? _hint
+                      : 'Make sure your head is in the circle while we scan your face',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _ring == Colors.red
+                        ? Colors.red
+                        : const Color(0xFF8A8A8E),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
+              ),
+              const SizedBox(height: 26),
+              if (_capturing)
+                const CircularProgressIndicator()
+              else
+                SizedBox(
+                  width: size * 0.85,
+                  height: 54,
+                  child: FilledButton.icon(
+                    onPressed: _captureSample,
+                    icon: const Icon(Icons.center_focus_strong),
+                    label: Text(_identify ? 'Scan now' : 'Capture'),
+                  ),
+                ),
+              const SizedBox(height: 24),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
