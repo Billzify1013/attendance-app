@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'face_capture.dart';
+import 'activity.dart';
 import 'analytics.dart';
 import 'attendance_admin.dart';
 import 'geo.dart';
 import 'khata.dart';
+import 'leave_add.dart';
 import 'payroll.dart';
 import 'shifts.dart';
 import 'face_recognizer.dart';
@@ -101,6 +103,11 @@ class _AdminHomeState extends State<AdminHome> {
           onPressed: _addLocation,
           icon: const Icon(Icons.add_location_alt),
           label: const Text('Add Site'))
+          : _tab == 3
+          ? FloatingActionButton.extended(
+          onPressed: _addLeave,
+          icon: const Icon(Icons.add),
+          label: const Text('Apply Leave'))
           : null,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
@@ -169,72 +176,123 @@ class _AdminHomeState extends State<AdminHome> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Card(
-          elevation: 0,
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(DateFormat('EEEE, dd MMM yyyy').format(DateTime.now()),
-                    style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 4),
-                Text(_user?.businessType ?? '',
-                    style: TextStyle(color: Colors.grey[600])),
-              ],
-            ),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: headerGradient,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                  color: seed.withOpacity(0.30),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8)),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(_user?.businessName ?? 'Dashboard',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800)),
+                  ),
+                  const Icon(Icons.notifications_none, color: Colors.white),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                  '${_user?.businessType ?? ''} · ${DateFormat('EEE, dd MMM').format(DateTime.now())}',
+                  style: const TextStyle(color: Colors.white70, fontSize: 13)),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  _headerStat('${_emps.length}', 'Staff'),
+                  _headerDivider(),
+                  _headerStat('${_presentOn(DateTime.now())}', 'Present'),
+                  _headerDivider(),
+                  _headerStat('${_absentOn(DateTime.now())}', 'Absent'),
+                ],
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
         _dateBar(),
         const SizedBox(height: 12),
         Row(
           children: [
-            _statCard('Present', '${_presentOn(_date)}', Icons.login),
+            _statCard('Present', '${_presentOn(_date)}', Icons.login,
+                const Color(0xFF22C55E)),
             const SizedBox(width: 12),
-            _statCard('Absent', '${_absentOn(_date)}', Icons.logout),
+            _statCard('Absent', '${_absentOn(_date)}', Icons.logout,
+                const Color(0xFFEF4444)),
           ],
         ),
         const SizedBox(height: 12),
-        Row(
-          children: [
-            _statCard('Total Staff', '${_emps.length}', Icons.groups),
-            const SizedBox(width: 12),
-            _statCard('Active', '${_emps.where((e) => e.active).length}',
-                Icons.verified_user),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Card(
-          elevation: 0,
-          child: ListTile(
-            leading: const Icon(Icons.center_focus_strong),
-            title: const Text('Open Staff Kiosk'),
-            subtitle: const Text('Let staff scan to punch on this device'),
-            onTap: _openKiosk,
+        InkWell(
+          onTap: _openKiosk,
+          borderRadius: BorderRadius.circular(18),
+          child: Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFEEF0F6)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                      color: seed.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(14)),
+                  child: const Icon(Icons.center_focus_strong, color: seed),
+                ),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Open Staff Kiosk',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w700)),
+                      Text('Staff scan to punch on this device',
+                          style: TextStyle(color: Colors.grey, fontSize: 12)),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right, color: Colors.grey),
+              ],
+            ),
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 22),
         Text('Manage',
             style: Theme.of(context)
                 .textTheme
                 .titleMedium
-                ?.copyWith(fontWeight: FontWeight.w700)),
-        const SizedBox(height: 10),
+                ?.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 12),
         GridView.count(
           crossAxisCount: 2,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           mainAxisSpacing: 12,
           crossAxisSpacing: 12,
-          childAspectRatio: 1.6,
+          childAspectRatio: 1.45,
           children: [
-            _tool('Attendance', Icons.fact_check, () => _open(AttendanceAdmin(ownerId: widget.ownerId))),
-            _tool('Payroll', Icons.receipt_long, () => _open(PayrollScreen(ownerId: widget.ownerId))),
-            _tool('Khata / Pay', Icons.account_balance_wallet, () => _open(KhataScreen(ownerId: widget.ownerId))),
-            _tool('Analytics', Icons.insights, () => _open(AnalyticsScreen(ownerId: widget.ownerId))),
-            _tool('Shifts', Icons.schedule, () => _open(ShiftsScreen(ownerId: widget.ownerId))),
+            _tool('Attendance', Icons.fact_check, const Color(0xFF5B7BFA), () => _open(AttendanceAdmin(ownerId: widget.ownerId))),
+            _tool('Payroll', Icons.receipt_long, const Color(0xFF22C55E), () => _open(PayrollScreen(ownerId: widget.ownerId))),
+            _tool('Khata / Pay', Icons.account_balance_wallet, const Color(0xFFF59E0B), () => _open(KhataScreen(ownerId: widget.ownerId))),
+            _tool('Analytics', Icons.insights, const Color(0xFFA855F7), () => _open(AnalyticsScreen(ownerId: widget.ownerId))),
+            _tool('Shifts', Icons.schedule, const Color(0xFF06B6D4), () => _open(ShiftsScreen(ownerId: widget.ownerId))),
+            _tool('Activity', Icons.timeline, const Color(0xFFEC4899), () => _open(ActivityScreen(ownerId: widget.ownerId))),
+            _tool('Settings', Icons.settings, const Color(0xFF64748B), () => _open(SettingsScreen(ownerId: widget.ownerId))),
           ],
         ),
       ],
@@ -246,31 +304,56 @@ class _AdminHomeState extends State<AdminHome> {
     _load();
   }
 
-  Widget _tool(String label, IconData icon, VoidCallback onTap) {
+  Widget _tool(String label, IconData icon, Color color, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(18),
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade200),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFFEEF0F6)),
         ),
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: seed, size: 28),
-            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                  color: color.withOpacity(0.14),
+                  borderRadius: BorderRadius.circular(12)),
+              child: Icon(icon, color: color, size: 24),
+            ),
+            const SizedBox(height: 10),
             Text(label,
                 style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w700)),
+                    fontSize: 14.5, fontWeight: FontWeight.w700)),
           ],
         ),
       ),
     );
   }
+
+  Widget _headerStat(String value, String label) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(value,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800)),
+          Text(label,
+              style: const TextStyle(color: Colors.white70, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+
+  Widget _headerDivider() => Container(
+      width: 1, height: 34, color: Colors.white.withOpacity(0.25));
 
   Widget _dateBar() {
     final isToday = DateFormat('yyyy-MM-dd').format(_date) ==
@@ -343,23 +426,32 @@ class _AdminHomeState extends State<AdminHome> {
     return absent;
   }
 
-  Widget _statCard(String label, String value, IconData icon) {
+  Widget _statCard(String label, String value, IconData icon, Color color) {
     return Expanded(
-      child: Card(
-        elevation: 0,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, color: seed),
-              const SizedBox(height: 8),
-              Text(value,
-                  style: const TextStyle(
-                      fontSize: 24, fontWeight: FontWeight.w800)),
-              Text(label, style: TextStyle(color: Colors.grey[600])),
-            ],
-          ),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFFEEF0F6)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                  color: color.withOpacity(0.14),
+                  borderRadius: BorderRadius.circular(10)),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(height: 10),
+            Text(value,
+                style: TextStyle(
+                    fontSize: 26, fontWeight: FontWeight.w800, color: color)),
+            Text(label,
+                style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+          ],
         ),
       ),
     );
@@ -660,120 +752,13 @@ class _AdminHomeState extends State<AdminHome> {
       snack(context, 'Add staff first', Colors.orange);
       return;
     }
-    String empId = _emps.first.id;
-    LeaveType type = LeaveType.casual;
-    DateTime from = DateTime.now();
-    DateTime to = DateTime.now();
-    bool half = false;
-    final reason = TextEditingController();
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setLocal) {
-          String fmt(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
-          return AlertDialog(
-            title: const Text('Apply Leave'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<String>(
-                    value: empId,
-                    decoration: const InputDecoration(labelText: 'Staff'),
-                    items: _emps
-                        .map((e) =>
-                        DropdownMenuItem(value: e.id, child: Text(e.name)))
-                        .toList(),
-                    onChanged: (v) => setLocal(() => empId = v ?? empId),
-                  ),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<LeaveType>(
-                    value: type,
-                    decoration: const InputDecoration(labelText: 'Type'),
-                    items: LeaveType.values
-                        .map((t) => DropdownMenuItem(
-                        value: t, child: Text(leaveLabel(t))))
-                        .toList(),
-                    onChanged: (v) => setLocal(() => type = v ?? type),
-                  ),
-                  const SizedBox(height: 10),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text('From: ${fmt(from)}'),
-                    trailing: const Icon(Icons.calendar_today, size: 18),
-                    onTap: () async {
-                      final d = await showDatePicker(
-                          context: context,
-                          initialDate: from,
-                          firstDate: DateTime(2020),
-                          lastDate: DateTime(2100));
-                      if (d != null) {
-                        setLocal(() {
-                          from = d;
-                          if (to.isBefore(from)) to = from;
-                        });
-                      }
-                    },
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text('To: ${fmt(to)}'),
-                    trailing: const Icon(Icons.calendar_today, size: 18),
-                    onTap: () async {
-                      final d = await showDatePicker(
-                          context: context,
-                          initialDate: to,
-                          firstDate: from,
-                          lastDate: DateTime(2100));
-                      if (d != null) setLocal(() => to = d);
-                    },
-                  ),
-                  if (fmt(from) == fmt(to))
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: half,
-                      onChanged: (v) => setLocal(() => half = v),
-                      title: const Text('Half day'),
-                    ),
-                  TextField(
-                    controller: reason,
-                    decoration: const InputDecoration(labelText: 'Reason'),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('Cancel')),
-              FilledButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  child: const Text('Save')),
-            ],
-          );
-        },
-      ),
+    final ok = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+          builder: (_) =>
+              LeaveAddScreen(ownerId: widget.ownerId, emps: _emps)),
     );
-    if (ok != true) return;
-    final days = from.year == to.year &&
-        from.month == to.month &&
-        from.day == to.day
-        ? (half ? 0.5 : 1.0)
-        : (to.difference(from).inDays + 1).toDouble();
-    await repo.saveLeave(LeaveRequest(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      ownerId: widget.ownerId,
-      empId: empId,
-      type: type,
-      fromDate: DateFormat('yyyy-MM-dd').format(from),
-      toDate: DateFormat('yyyy-MM-dd').format(to),
-      days: days,
-      reason: reason.text.trim(),
-      status: 'pending',
-      createdAt: DateTime.now().millisecondsSinceEpoch,
-    ));
-    _load();
+    if (ok == true) _load();
   }
 
   Future<void> _delete(Employee e) async {
