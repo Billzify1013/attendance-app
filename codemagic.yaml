@@ -25,8 +25,14 @@ workflows:
     scripts:
       - name: Get packages
         script: flutter pub get
-      - name: Install pods
-        script: cd ios && pod install
+      - name: Force iOS 15.5 in Podfile
+        script: |
+          cd ios
+          if [ -f Podfile ]; then
+            sed -i '' "s/# platform :ios.*/platform :ios, '15.5'/" Podfile
+            sed -i '' "s/platform :ios, '[0-9.]*'/platform :ios, '15.5'/" Podfile
+          fi
+          cd ..
       - name: Build iOS without signing
         script: flutter build ios --release --no-codesign
       - name: Package unsigned IPA
