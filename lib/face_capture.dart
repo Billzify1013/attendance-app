@@ -72,7 +72,8 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
     _detector = FaceDetector(
       options: FaceDetectorOptions(
         performanceMode: FaceDetectorMode.accurate,
-        minFaceSize: 0.08,
+        minFaceSize: 0.05,
+        enableClassification: true, // for blink (eye-open) detection
       ),
     );
     _pickCamera();
@@ -203,14 +204,14 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       if (input != null) {
         final faces = await _detector.processImage(input);
         if (faces.isEmpty) {
-          hint = 'Bring your face into the circle';
+          hint = 'No face — center it in the circle, add light';
         } else if (faces.length > 1) {
           hint = 'Only one person at a time';
         } else {
           final f = faces.first;
           final yaw = (f.headEulerAngleY ?? 99).abs();
           final roll = (f.headEulerAngleZ ?? 99).abs();
-          if (yaw > 30 || roll > 30) {
+          if (yaw > 40 || roll > 40) {
             hint = 'Look straight at the camera';
           } else {
             good = true;
@@ -235,7 +236,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       }
       if (good) {
         _stable++;
-        if (_stable >= 2) await _captureSample();
+        if (_stable >= 1) await _captureSample();
       } else {
         _stable = 0;
       }
@@ -275,7 +276,30 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       final f = faces.first;
       final yaw = (f.headEulerAngleY ?? 99).abs();
       final roll = (f.headEulerAngleZ ?? 99).abs();
-      if (yaw > 32 || roll > 32) return _retry('Look straight, retry');
+      if (yaw > 42 || roll > 42) return _retry('Look straight, retry');
+
+      // helpful guidance so the user knows WHY it failed
+      final box = f.boundingBox;
+      final faceFrac = box.width / full.width;
+      if (faceFrac < 0.16) return _retry('Come closer — face too small');
+      if (faceFrac > 0.85) return _retry('Move back a little');
+      // quick brightness check on the face region
+      double lum = 0;
+      int n = 0;
+      final bx = box.left.clamp(0, full.width - 1).toInt();
+      final by = box.top.clamp(0, full.height - 1).toInt();
+      final bw = box.width.clamp(1, full.width - bx).toInt();
+      final bh = box.height.clamp(1, full.height - by).toInt();
+      for (int yy = by; yy < by + bh; yy += (bh ~/ 6).clamp(1, bh)) {
+        for (int xx = bx; xx < bx + bw; xx += (bw ~/ 6).clamp(1, bw)) {
+          final p = full.getPixel(xx, yy);
+          lum += (0.299 * p.r + 0.587 * p.g + 0.114 * p.b);
+          n++;
+        }
+      }
+      if (n > 0 && (lum / n) < 45) {
+        return _retry('Too dark — face a light source');
+      }
 
       final emb = FaceRecognizer.instance.embedFace(full, f.boundingBox);
       if (emb == null) return _retry('Could not read face, retry');
@@ -293,19 +317,27 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
             matched = e;
           }
         }
-        if (matched != null && best >= kMatchThreshold) {
-          if (mounted) {
-            setState(() {
-              _ring = Colors.green;
-              _hint = 'Hello, ${matched!.name}';
-            });
-          }
-          await Future.delayed(const Duration(milliseconds: 500));
-          if (mounted) {
-            Navigator.pop(context, CaptureResult(_photo!, [emb], matched: matched));
-          }
-        } else {
+        if (matched == null || best < kMatchThreshold) {
           return _retry('Face not recognized');
+        }
+        // ---- LIVENESS: ask the person to blink (a photo can't blink) ----
+        if (mounted) {
+          setState(() {
+            _ring = Colors.green;
+            _hint = 'Blink to confirm 👀';
+          });
+        }
+        final live = await _checkBlink();
+        if (!live) {
+          return _retry('Blink to verify — try again');
+        }
+        if (mounted) {
+          setState(() => _hint = 'Hello, ${matched!.name}');
+        }
+        await Future.delayed(const Duration(milliseconds: 350));
+        if (mounted) {
+          Navigator.pop(
+              context, CaptureResult(_photo!, [emb], matched: matched));
         }
         return;
       }
@@ -337,6 +369,37 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
     } catch (e) {
       _retry('ERR: $e');
     }
+  }
+
+  // Takes a few quick shots; passes if eyes are seen closed (a real blink).
+  Future<bool> _checkBlink() async {
+    for (int i = 0; i < 5; i++) {
+      try {
+        final file = await _controller!.takePicture();
+        final bytes = await File(file.path).readAsBytes();
+        var im = img.decodeImage(bytes);
+        if (im != null) {
+          im = img.bakeOrientation(im);
+          final p = '${file.path}_blink.jpg';
+          await File(p).writeAsBytes(img.encodeJpg(im));
+          final faces =
+          await _detector.processImage(InputImage.fromFilePath(p));
+          try {
+            await File(p).delete();
+          } catch (_) {}
+          if (faces.isNotEmpty) {
+            final f = faces.first;
+            final l = f.leftEyeOpenProbability;
+            final r = f.rightEyeOpenProbability;
+            // can't measure -> don't lock the user out
+            if (l == null || r == null) return true;
+            if (l < 0.4 && r < 0.4) return true; // eyes closed = blinked
+          }
+        }
+      } catch (_) {}
+      await Future.delayed(const Duration(milliseconds: 250));
+    }
+    return false;
   }
 
   void _retry(String msg) {
