@@ -41,7 +41,8 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
   late final AnimationController _anim;
   Timer? _iosTimer;
   CameraController? _controller;
-  late final FaceDetector _detector;
+  late final FaceDetector _detector;       // fast: live + capture
+  late final FaceDetector _blinkDetector;  // classification: blink only
   bool _initializing = true;
   bool _busy = false;
   bool _capturing = false;
@@ -71,9 +72,14 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       ..repeat();
     _detector = FaceDetector(
       options: FaceDetectorOptions(
-        performanceMode: FaceDetectorMode.accurate,
-        minFaceSize: 0.05,
-        enableClassification: true, // for blink (eye-open) detection
+        performanceMode: FaceDetectorMode.fast, // fast & responsive
+        minFaceSize: 0.12,
+      ),
+    );
+    _blinkDetector = FaceDetector(
+      options: FaceDetectorOptions(
+        performanceMode: FaceDetectorMode.fast,
+        enableClassification: true, // eye-open probability for blink
       ),
     );
     _pickCamera();
@@ -383,7 +389,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
           final p = '${file.path}_blink.jpg';
           await File(p).writeAsBytes(img.encodeJpg(im));
           final faces =
-          await _detector.processImage(InputImage.fromFilePath(p));
+          await _blinkDetector.processImage(InputImage.fromFilePath(p));
           try {
             await File(p).delete();
           } catch (_) {}
@@ -436,6 +442,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
     _stopStream();
     _controller?.dispose();
     _detector.close();
+    _blinkDetector.close();
     super.dispose();
   }
 
@@ -608,6 +615,7 @@ class _RingPainter extends CustomPainter {
     const window = 16; // how many ticks light up while scanning
     final base = const Color(0xFFE2E5EC);
     const green = Color(0xFF34C759);
+    const blue = Color(0xFF5B7BFA);
     const red = Color(0xFFFF3B30);
     final paint = Paint()..strokeCap = StrokeCap.round;
     final pos = progress * ticks;
@@ -627,7 +635,7 @@ class _RingPainter extends CustomPainter {
       } else {
         final d = (((i - pos) % ticks) + ticks) % ticks;
         if (d < window) {
-          col = green;
+          col = blue; // still searching (blue), green only when locked
           w = 4;
         }
       }
