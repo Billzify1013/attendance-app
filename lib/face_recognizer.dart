@@ -17,7 +17,7 @@ class FaceRecognizer {
     if (ready) return;
     try {
       _interp =
-          await Interpreter.fromAsset('assets/models/mobilefacenet.tflite');
+      await Interpreter.fromAsset('assets/models/mobilefacenet.tflite');
       _size = _interp!.getInputTensor(0).shape[1];
       final out = _interp!.getOutputTensor(0).shape;
       _embLen = out[out.length - 1];
@@ -29,18 +29,27 @@ class FaceRecognizer {
 
   List<double>? embedFace(img.Image full, Rect box) {
     if (_interp == null) return null;
+
+    // ---- SQUARE crop centred on the face (no aspect distortion) ----
     final pad = box.width * 0.2;
-    int x = (box.left - pad).clamp(0, full.width - 1).toInt();
-    int y = (box.top - pad).clamp(0, full.height - 1).toInt();
-    int w = (box.width + pad * 2).clamp(1, full.width - x).toInt();
-    int h = (box.height + pad * 2).clamp(1, full.height - y).toInt();
-    final crop = img.copyCrop(full, x: x, y: y, width: w, height: h);
+    final cx = box.left + box.width / 2;
+    final cy = box.top + box.height / 2;
+    double side = math.max(box.width, box.height) + pad * 2;
+    // keep the square inside the image
+    side = math.min(side, full.width.toDouble());
+    side = math.min(side, full.height.toDouble());
+    int x = (cx - side / 2).clamp(0, full.width - side).toInt();
+    int y = (cy - side / 2).clamp(0, full.height - side).toInt();
+    int s = side.toInt().clamp(1, math.min(full.width - x, full.height - y));
+
+    final crop = img.copyCrop(full, x: x, y: y, width: s, height: s);
     final r = img.copyResize(crop, width: _size, height: _size);
+
     final input = List.generate(
       1,
-      (_) => List.generate(
+          (_) => List.generate(
         _size,
-        (yy) => List.generate(_size, (xx) {
+            (yy) => List.generate(_size, (xx) {
           final p = r.getPixel(xx, yy);
           return [
             (p.r - 127.5) / 128.0,
@@ -72,9 +81,9 @@ class FaceRecognizer {
   }
 }
 
-// match thresholds
-const double kMatchThreshold = 0.50; // punch/identify (lenient)
-const double kDupThreshold = 0.62; // block duplicate registration (strict)
+// match thresholds (tuned after square-crop quality fix)
+const double kMatchThreshold = 0.50; // punch/identify (lenient = 1-shot match)
+const double kDupThreshold = 0.66; // block duplicate registration
 
 double bestScore(List<double> probe, List<List<double>> templates) {
   double best = -1;

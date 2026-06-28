@@ -47,8 +47,6 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
   bool _capturing = false;
   bool _faceVisible = false;
   int _stable = 0;
-  bool _eyesOpenSeen = false;
-  bool _blinked = false;
   int _camIndex = 0;
   String? _error;
   String _hint = 'Position your face in the circle';
@@ -73,9 +71,8 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       ..repeat();
     _detector = FaceDetector(
       options: FaceDetectorOptions(
-        performanceMode: FaceDetectorMode.fast, // fast & responsive
+        performanceMode: FaceDetectorMode.fast,
         minFaceSize: 0.12,
-        enableClassification: true, // eye-open for natural blink liveness
       ),
     );
     _pickCamera();
@@ -108,12 +105,10 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       _capturing = false;
       _faceVisible = false;
       _stable = 0;
-      _eyesOpenSeen = false;
-      _blinked = false;
     });
     final c = CameraController(
       cameras[_camIndex],
-      ResolutionPreset.veryHigh,
+      ResolutionPreset.high,
       enableAudio: false,
       imageFormatGroup:
       Platform.isIOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.nv21,
@@ -219,21 +214,11 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
             hint = 'Look straight at the camera';
           } else {
             good = true;
-            // ---- natural blink tracking (identify only) ----
-            final eo = (((f.leftEyeOpenProbability ?? 1.0) +
-                (f.rightEyeOpenProbability ?? 1.0)) /
-                2);
-            if (eo > 0.7) _eyesOpenSeen = true;
-            if (_eyesOpenSeen && eo < 0.3) _blinked = true;
-            if (_identify && !_blinked) {
-              hint = 'Please blink — close & open your eyes 👁';
-            } else {
-              hint = _identify
-                  ? 'Hold still…'
-                  : (widget.samples > 1
-                  ? 'Hold still (${_templates.length}/${widget.samples})'
-                  : 'Hold still…');
-            }
+            hint = _identify
+                ? 'Hold still…'
+                : (widget.samples > 1
+                ? 'Hold still (${_templates.length}/${widget.samples})'
+                : 'Hold still…');
           }
         }
       }
@@ -248,8 +233,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
           }
         });
       }
-      final canCapture = good && (!_identify || _blinked);
-      if (canCapture) {
+      if (good) {
         _stable++;
         if (_stable >= 1) await _captureSample();
       } else {
@@ -333,25 +317,13 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
           }
         }
         if (matched == null || best < kMatchThreshold) {
-          return _retry('Face not recognized');
-        }
-        // ---- LIVENESS ----
-        // Android verifies the blink live (passive) before capture.
-        // iOS has no live stream, so do one explicit blink check here.
-        if (Platform.isIOS) {
-          if (mounted) {
-            setState(() {
-              _ring = Colors.green;
-              _hint = 'Please close & open your eyes 👁';
-            });
-          }
-          final live = await _checkBlink();
-          if (!live) {
-            return _retry('Blink to verify — try again');
-          }
+          return _retry('Face not recognized — try again');
         }
         if (mounted) {
-          setState(() => _hint = 'Hello, ${matched!.name}');
+          setState(() {
+            _ring = Colors.green;
+            _hint = 'Hello, ${matched!.name}';
+          });
         }
         await Future.delayed(const Duration(milliseconds: 350));
         if (mounted) {
@@ -390,52 +362,23 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
     }
   }
 
-  // Takes a few quick shots; passes if eyes are seen closed (a real blink).
-  Future<bool> _checkBlink() async {
-    for (int i = 0; i < 5; i++) {
-      try {
-        final file = await _controller!.takePicture();
-        final bytes = await File(file.path).readAsBytes();
-        var im = img.decodeImage(bytes);
-        if (im != null) {
-          im = img.bakeOrientation(im);
-          final p = '${file.path}_blink.jpg';
-          await File(p).writeAsBytes(img.encodeJpg(im));
-          final faces =
-          await _detector.processImage(InputImage.fromFilePath(p));
-          try {
-            await File(p).delete();
-          } catch (_) {}
-          if (faces.isNotEmpty) {
-            final f = faces.first;
-            final l = f.leftEyeOpenProbability;
-            final r = f.rightEyeOpenProbability;
-            // can't measure -> don't lock the user out
-            if (l == null || r == null) return true;
-            if (l < 0.4 && r < 0.4) return true; // eyes closed = blinked
-          }
-        }
-      } catch (_) {}
-      await Future.delayed(const Duration(milliseconds: 250));
-    }
-    return false;
-  }
-
-  void _retry(String msg) {
+  Future<void> _retry(String msg) async {
     _capturing = false;
     _stable = 0;
     if (mounted) {
       setState(() {
         if (Platform.isIOS) {
-          // auto-retrying silently; don't alarm the user with red
           _hint = 'Hold still, scanning…';
           _ring = Colors.white60;
         } else {
           _hint = msg;
-          _ring = Colors.red;
+          _ring = Colors.white60;
         }
       });
     }
+    // small cooldown so failed tries don't rapidly flash the camera
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
     if (!Platform.isIOS) {
       try {
         _controller?.startImageStream(_process);
