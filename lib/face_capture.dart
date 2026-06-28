@@ -41,13 +41,14 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
   late final AnimationController _anim;
   Timer? _iosTimer;
   CameraController? _controller;
-  late final FaceDetector _detector;       // fast: live + capture
-  late final FaceDetector _blinkDetector;  // classification: blink only
+  late final FaceDetector _detector;
   bool _initializing = true;
   bool _busy = false;
   bool _capturing = false;
   bool _faceVisible = false;
   int _stable = 0;
+  bool _eyesOpenSeen = false;
+  bool _blinked = false;
   int _camIndex = 0;
   String? _error;
   String _hint = 'Position your face in the circle';
@@ -74,12 +75,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       options: FaceDetectorOptions(
         performanceMode: FaceDetectorMode.fast, // fast & responsive
         minFaceSize: 0.12,
-      ),
-    );
-    _blinkDetector = FaceDetector(
-      options: FaceDetectorOptions(
-        performanceMode: FaceDetectorMode.fast,
-        enableClassification: true, // eye-open probability for blink
+        enableClassification: true, // eye-open for natural blink liveness
       ),
     );
     _pickCamera();
@@ -112,6 +108,8 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       _capturing = false;
       _faceVisible = false;
       _stable = 0;
+      _eyesOpenSeen = false;
+      _blinked = false;
     });
     final c = CameraController(
       cameras[_camIndex],
@@ -221,11 +219,21 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
             hint = 'Look straight at the camera';
           } else {
             good = true;
-            hint = _identify
-                ? 'Scanning…'
-                : (widget.samples > 1
-                ? 'Hold still (${_templates.length}/${widget.samples})'
-                : 'Hold still…');
+            // ---- natural blink tracking (identify only) ----
+            final eo = (((f.leftEyeOpenProbability ?? 1.0) +
+                (f.rightEyeOpenProbability ?? 1.0)) /
+                2);
+            if (eo > 0.7) _eyesOpenSeen = true;
+            if (_eyesOpenSeen && eo < 0.3) _blinked = true;
+            if (_identify && !_blinked) {
+              hint = 'Please blink — close & open your eyes 👁';
+            } else {
+              hint = _identify
+                  ? 'Hold still…'
+                  : (widget.samples > 1
+                  ? 'Hold still (${_templates.length}/${widget.samples})'
+                  : 'Hold still…');
+            }
           }
         }
       }
@@ -240,7 +248,8 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
           }
         });
       }
-      if (good) {
+      final canCapture = good && (!_identify || _blinked);
+      if (canCapture) {
         _stable++;
         if (_stable >= 1) await _captureSample();
       } else {
@@ -326,16 +335,20 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
         if (matched == null || best < kMatchThreshold) {
           return _retry('Face not recognized');
         }
-        // ---- LIVENESS: ask the person to blink (a photo can't blink) ----
-        if (mounted) {
-          setState(() {
-            _ring = Colors.green;
-            _hint = 'Blink to confirm 👀';
-          });
-        }
-        final live = await _checkBlink();
-        if (!live) {
-          return _retry('Blink to verify — try again');
+        // ---- LIVENESS ----
+        // Android verifies the blink live (passive) before capture.
+        // iOS has no live stream, so do one explicit blink check here.
+        if (Platform.isIOS) {
+          if (mounted) {
+            setState(() {
+              _ring = Colors.green;
+              _hint = 'Please close & open your eyes 👁';
+            });
+          }
+          final live = await _checkBlink();
+          if (!live) {
+            return _retry('Blink to verify — try again');
+          }
         }
         if (mounted) {
           setState(() => _hint = 'Hello, ${matched!.name}');
@@ -389,7 +402,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
           final p = '${file.path}_blink.jpg';
           await File(p).writeAsBytes(img.encodeJpg(im));
           final faces =
-          await _blinkDetector.processImage(InputImage.fromFilePath(p));
+          await _detector.processImage(InputImage.fromFilePath(p));
           try {
             await File(p).delete();
           } catch (_) {}
@@ -442,7 +455,6 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
     _stopStream();
     _controller?.dispose();
     _detector.close();
-    _blinkDetector.close();
     super.dispose();
   }
 
