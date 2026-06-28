@@ -108,7 +108,7 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
     });
     final c = CameraController(
       cameras[_camIndex],
-      ResolutionPreset.high,
+      ResolutionPreset.medium,
       enableAudio: false,
       imageFormatGroup:
       Platform.isIOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.nv21,
@@ -261,15 +261,19 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       if (full == null) return _retry('Capture failed, retry');
       full = img.bakeOrientation(full);
 
-      // Detect on the SAME upright image, so the face box matches the pixels
-      // we crop from (iOS photos are rotated/mirrored differently than Android).
-      final bakedPath = '${file.path}_baked.jpg';
-      await File(bakedPath).writeAsBytes(img.encodeJpg(full));
-      final faces =
-      await _detector.processImage(InputImage.fromFilePath(bakedPath));
-      try {
-        await File(bakedPath).delete();
-      } catch (_) {}
+      List<Face> faces;
+      if (Platform.isIOS) {
+        // iOS photos are rotated/mirrored differently -> detect on baked image
+        final bakedPath = '${file.path}_baked.jpg';
+        await File(bakedPath).writeAsBytes(img.encodeJpg(full));
+        faces = await _detector.processImage(InputImage.fromFilePath(bakedPath));
+        try {
+          await File(bakedPath).delete();
+        } catch (_) {}
+      } else {
+        // Android: single detection on the captured file (fast)
+        faces = await _detector.processImage(InputImage.fromFilePath(file.path));
+      }
 
       if (faces.length != 1) return _retry('Face not clear, retry');
       final f = faces.first;
