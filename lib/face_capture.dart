@@ -313,15 +313,24 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       if (_identify) {
         Employee? matched;
         double best = -1;
+        double second = -1; // 2nd-best score, for the margin/gap check
         for (final e in widget.identifyAgainst!) {
           final sc = bestScore(emb, e.templates);
           if (sc > best) {
+            second = best;
             best = sc;
             matched = e;
+          } else if (sc > second) {
+            second = sc;
           }
         }
+        // STRICT: must clearly pass the bar...
         if (matched == null || best < kMatchThreshold) {
           return _retry('Face not recognized — try again');
+        }
+        // ...AND clearly beat the next-closest person (no confusing 2 faces)
+        if (second >= 0 && (best - second) < kMatchMargin) {
+          return _retry('Not sure it\'s you — try again');
         }
         if (mounted) {
           setState(() {

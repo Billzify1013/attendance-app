@@ -17,7 +17,7 @@ class FaceRecognizer {
     if (ready) return;
     try {
       _interp =
-      await Interpreter.fromAsset('assets/models/mobilefacenet.tflite');
+      await Interpreter.fromAsset('assets/models/edgeface_s.tflite');
       _size = _interp!.getInputTensor(0).shape[1];
       final out = _interp!.getOutputTensor(0).shape;
       _embLen = out[out.length - 1];
@@ -52,9 +52,9 @@ class FaceRecognizer {
             (yy) => List.generate(_size, (xx) {
           final p = r.getPixel(xx, yy);
           return [
-            (p.r - 127.5) / 128.0,
-            (p.g - 127.5) / 128.0,
-            (p.b - 127.5) / 128.0
+            (p.r / 255.0 - 0.5) / 0.5,
+            (p.g / 255.0 - 0.5) / 0.5,
+            (p.b / 255.0 - 0.5) / 0.5
           ];
         }),
       ),
@@ -82,8 +82,9 @@ class FaceRecognizer {
 }
 
 // match thresholds (tuned after square-crop quality fix)
-const double kMatchThreshold = 0.50; // punch/identify (lenient = 1-shot match)
-const double kDupThreshold = 0.66; // block duplicate registration
+const double kMatchThreshold = 0.45; // strict: only the real person passes
+const double kDupThreshold = 0.50; // block duplicate registration
+const double kMatchMargin = 0.05; // best must beat 2nd-best by this gap
 
 double bestScore(List<double> probe, List<List<double>> templates) {
   double best = -1;

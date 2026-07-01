@@ -855,7 +855,7 @@ class _AddEditEmployeeState extends State<AddEditEmployee> {
       context,
       MaterialPageRoute(
           builder: (_) =>
-          const FaceCaptureScreen(title: 'Register face', samples: 5)),
+          const FaceCaptureScreen(title: 'Register face', samples: 8)),
     );
     if (res == null || !mounted) return;
     setState(() => _busy = true);
